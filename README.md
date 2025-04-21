@@ -1,2 +1,3 @@
 # senior_thesis_split_filed_code
 This will be the code that has the files split up and calling one another 
+Initially this project contained code that was generated from chatgpt as of April 20th, 2025 Gemini Advanced will provide much of the code. GPT's code was okay but there were plenty of issues. What is now coming from Gem is broken down in greater depth than before. A greater understanding is now coming from Gem. 
