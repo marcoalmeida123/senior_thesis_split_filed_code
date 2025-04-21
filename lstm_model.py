@@ -75,14 +75,14 @@ def train_and_evaluate_lstm(train_df, test_df, sequence_length=60, batch_size=32
 
     # Combine train and test data temporarily for consistent scaling across the full range
     # But fit the scaler ONLY on the training data
-    full_data_lstm = pd.concat([train_df[features_lstm], test_df[features_lstm]])
+    full_data_lstm_values = pd.concat([train_df[features_lstm], test_df[features_lstm]]).values # Get values as numpy array
 
     # Scale the data - fit ONLY on training portion
     scaler_lstm = MinMaxScaler(feature_range=(0, 1))
     scaler_lstm.fit(train_df[features_lstm].values) # Fit only on training data values
 
     # Transform the full data using the fitted scaler
-    full_data_scaled_lstm = scaler_lstm.transform(full_data_lstm.values)
+    full_data_scaled_lstm = scaler_lstm.transform(full_data_lstm_values)
 
     # Find the index where the test data starts in the full scaled data array
     test_start_iloc_scaled = len(train_df)
@@ -149,7 +149,9 @@ def train_and_evaluate_lstm(train_df, test_df, sequence_length=60, batch_size=32
 
     # --- LSTM Evaluation ---
     print("Evaluating LSTM Predictions...")
-    # Ensure lengths match for evaluation (can be off by a few days due to sequence creation)
+    # The length of actual_prices_lstm and predictions_lstm should be the same
+    # and equal to the number of sequences in X_test_lstm, which is len(test_df) - sequence_length + 1
+    # Let's get the actual length from the arrays themselves
     min_len_lstm_eval = min(len(actual_prices_lstm), len(predictions_lstm))
     actual_prices_lstm_eval = actual_prices_lstm[:min_len_lstm_eval]
     predictions_lstm_eval = predictions_lstm[:min_len_lstm_eval]
@@ -161,10 +163,16 @@ def train_and_evaluate_lstm(train_df, test_df, sequence_length=60, batch_size=32
     print(f"LSTM MAE for test period: {mae_lstm:.4f}")
 
     # --- LSTM Visualization ---
-    # The dates for the test predictions correspond to the dates *after* the sequence length
-    # in the original test data portion of the DataFrame.
-    # Need to get the original test data dates and align with prediction length
-    test_dates_for_plot_lstm = test_df.index[sequence_length : sequence_length + min_len_lstm_eval]
+    # The dates for plotting should correspond exactly to the evaluated prices/predictions.
+    # These predictions correspond to the days AFTER the sequences in X_test_lstm.
+    # The first sequence in X_test_lstm starts at index 0 of test_scaled_lstm,
+    # which corresponds to the date at index (test_start_iloc_scaled - sequence_length)
+    # in the full_data_lstm_values (and thus full_data_lstm index).
+    # The prediction for this sequence is for the date at index (test_start_iloc_scaled - sequence_length) + sequence_length
+    # which is test_start_iloc_scaled in the full data index. This is the first date of the test period.
+    # The dates for plotting are the dates from the test_df index, starting from the first date,
+    # up to the number of predictions made.
+    test_dates_for_plot_lstm = test_df.index[:min_len_lstm_eval]
 
 
     plt.figure(figsize=(14, 7))
@@ -194,10 +202,17 @@ def train_and_evaluate_lstm(train_df, test_df, sequence_length=60, batch_size=32
 # Example of how to run this function if needed standalone for testing:
 # if __name__ == '__main__':
 #     # Load your data here for standalone testing
-#     df_full = pd.read_csv('spy_2000_2023.csv', index_col='Date', parse_dates=True)
-#     df_full.sort_index(inplace=True)
-#     train_df_test = df_full.loc[df_full.index < '2024-01-01'].copy()
-#     test_df_test = df_full.loc[df_full.index >= '2024-01-01'].copy()
+#     # Need to load both train and test files for this function
+#     try:
+#         train_df_test = pd.read_csv('spy_2000_2023.csv', skiprows=3, header=None, names=['Date', 'Close', 'High', 'Low', 'Open', 'Volume'], parse_dates=['Date'], index_col='Date')
+#         test_df_test = pd.read_csv('spy_2024.csv', skiprows=3, header=None, names=['Date', 'Close', 'High', 'Low', 'Open', 'Volume'], parse_dates=['Date'], index_col='Date')
+#         train_df_test.sort_index(inplace=True)
+#         test_df_test.sort_index(inplace=True)
+#         print("Standalone test data loaded.")
+#     except Exception as e:
+#         print(f"Error loading standalone test data: {e}")
+#         exit()
+#
 #     lstm_results = train_and_evaluate_lstm(train_df_test, test_df_test)
 #     print("\nStandalone LSTM Results:", lstm_results)
 

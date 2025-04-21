@@ -1,6 +1,7 @@
 # === File: main_code.py ===
-# This script loads SPY data, calls functions from separate model files
-# to train and evaluate HMM, Random Forest, and LSTM models,
+# This script loads SPY training data (2000-2023) and testing data (2024)
+# from separate files, calls functions from separate model files
+# to train on the training data, predict on the testing data,
 # and prints a summary of the results.
 
 import pandas as pd
@@ -23,9 +24,9 @@ except ImportError as e:
 
 
 # --- Configuration ---
-# DATA_FILE should contain data from 2000 through 2024
-DATA_FILE = 'spy_2000_2023.csv'
-TEST_START_DATE = '2024-01-01'
+# Define the file paths for your separate training and testing data
+TRAIN_DATA_FILE = 'spy_2000_2023.csv' # Data for training (e.g., 2000-2023)
+TEST_DATA_FILE = 'spy_2024.csv'       # Data for testing (e.g., 2024)
 
 # Model Hyperparameters (can be adjusted)
 HMM_N_STATES = 3
@@ -39,64 +40,83 @@ RANDOM_STATE = 42 # For reproducibility
 
 
 # --- Data Loading ---
-print(f"--- Loading Data ---")
-if not os.path.exists(DATA_FILE):
-    print(f"Error: Data file not found at {DATA_FILE}")
-    print("Please ensure '{DATA_FILE}' is in the correct directory.")
-    print("You can create this file using the data download script provided earlier.")
+print(f"--- Loading Training Data from {TRAIN_DATA_FILE} ---")
+if not os.path.exists(TRAIN_DATA_FILE):
+    print(f"Error: Training data file not found at {TRAIN_DATA_FILE}")
+    print("Please ensure '{TRAIN_DATA_FILE}' is in the correct directory.")
     exit()
 
 try:
-    # Attempt to read the CSV without setting the index column first
-    df = pd.read_csv(DATA_FILE)
-    print(f"Successfully loaded data from {DATA_FILE}")
-    print(f"Columns found in the CSV: {df.columns.tolist()}") # Print column names
+    # Load Training CSV with specific parameters to handle extra headers
+    # skip the first 3 rows which contain extra header information
+    # header=None because the row we start reading from (row 4) does not have column names
+    # names: manually provide the column names in the correct order
+    # parse_dates: tell pandas to parse the 'Date' column as datetime objects
+    # index_col: set the 'Date' column as the DataFrame index
+    train_df_master = pd.read_csv(
+        TRAIN_DATA_FILE,
+        skiprows=3,       # Skip the first 3 lines based on previous CSV format
+        header=None,      # The 4th line (after skipping) is data, not a header
+        names=['Date', 'Close', 'High', 'Low', 'Open', 'Volume'], # Provide correct column names
+        parse_dates=['Date'], # Tell pandas to parse the 'Date' column as dates
+        index_col='Date'  # Set the 'Date' column as the index
+    )
 
-    # --- Identify and Set Date Column ---
-    # Common names for the date column when saving index=True from yfinance
-    date_column_candidates = ['Date', 'date', 'DATE', 'Unnamed: 0']
-    date_column_name = None
+    print(f"Successfully loaded training data from {TRAIN_DATA_FILE}")
+    print(f"Training data columns: {train_df_master.columns.tolist()}")
+    print(f"Training data shape: {train_df_master.shape}")
+    print("First 5 rows of training data:")
+    print(train_df_master.head())
 
-    for col in date_column_candidates:
-        if col in df.columns:
-            date_column_name = col
-            break # Found a likely date column
+except Exception as e:
+    print(f"An error occurred during training data loading or processing: {e}")
+    print("Please check the format of your training CSV file, especially the number of header rows.")
+    exit()
 
-    if date_column_name:
-        print(f"Identified '{date_column_name}' as the potential date column.")
-        # Set the identified column as the index and parse as dates
-        df.set_index(date_column_name, inplace=True)
-        df.index = pd.to_datetime(df.index) # Ensure the index is datetime objects
-        print("Successfully set date column as index.")
-    else:
-        print("Error: Could not find a suitable date column ('Date', 'date', 'DATE', 'Unnamed: 0').")
-        print("Please check your CSV file and update the 'date_column_candidates' list or the file.")
-        exit()
+# Ensure training data is sorted by date
+train_df_master.sort_index(inplace=True)
 
-    print(f"Full data shape after setting index: {df.shape}")
-    print("First 5 dates in index:", df.index[:5].tolist())
+
+print(f"\n--- Loading Testing Data from {TEST_DATA_FILE} ---")
+if not os.path.exists(TEST_DATA_FILE):
+    print(f"Error: Testing data file not found at {TEST_DATA_FILE}")
+    print("Please ensure '{TEST_DATA_FILE}' is in the correct directory.")
+    exit()
+
+try:
+    # Load Testing CSV with the SAME specific parameters to handle extra headers
+    test_df_master = pd.read_csv(
+        TEST_DATA_FILE,
+        skiprows=3,       # Skip the first 3 lines based on previous CSV format
+        header=None,      # The 4th line (after skipping) is data, not a header
+        names=['Date', 'Close', 'High', 'Low', 'Open', 'Volume'], # Provide correct column names
+        parse_dates=['Date'], # Tell pandas to parse the 'Date' column as dates
+        index_col='Date'  # Set the 'Date' column as the index
+    )
+
+    print(f"Successfully loaded testing data from {TEST_DATA_FILE}")
+    print(f"Testing data columns: {test_df_master.columns.tolist()}")
+    print(f"Testing data shape: {test_df_master.shape}")
+    print("First 5 rows of testing data:")
+    print(test_df_master.head())
 
 
 except Exception as e:
-    print(f"An error occurred during data loading or processing: {e}")
+    print(f"An error occurred during testing data loading or processing: {e}")
+    print("Please check the format of your testing CSV file, especially the number of header rows.")
     exit()
 
-# Ensure data is sorted by date
-df.sort_index(inplace=True)
+# Ensure testing data is sorted by date
+test_df_master.sort_index(inplace=True)
 
-# --- Data Splitting (Master Split for Train/Test) ---
-# Split the full DataFrame into training (before TEST_START_DATE) and testing (from TEST_START_DATE onwards)
-# Use .copy() to avoid SettingWithCopyWarning
-train_df_master = df.loc[df.index < TEST_START_DATE].copy()
-test_df_master = df.loc[df.index >= TEST_START_DATE].copy()
 
-# Check if test data exists
+# Check if test data is empty after loading
 if test_df_master.empty:
-    print(f"Error: No test data found on or after {TEST_START_DATE}.")
-    print("Please ensure your data file includes data for 2024.")
+    print(f"Error: Testing data loaded from {TEST_DATA_FILE} is empty.")
+    print("Please ensure the file contains data.")
     exit()
 
-print(f"Master Training data shape: {train_df_master.shape}")
+print(f"\nMaster Training data shape: {train_df_master.shape}")
 print(f"Master Testing data shape: {test_df_master.shape}")
 
 
@@ -107,10 +127,10 @@ all_results = {}
 print("\n" + "="*60)
 print("--- Running HMM Model ---")
 print("="*60)
-# Pass copies of the master dataframes to model functions to prevent unintended modifications
+# Pass the separate training and testing dataframes to the HMM function
 hmm_results = train_and_evaluate_hmm(
-    train_df=train_df_master.copy(),
-    test_df=test_df_master.copy(),
+    train_df=train_df_master.copy(), # Pass a copy to prevent modifications
+    test_df=test_df_master.copy(),   # Pass a copy
     n_states=HMM_N_STATES,
     random_state=RANDOM_STATE
 )
@@ -121,10 +141,10 @@ all_results.update(hmm_results)
 print("\n" + "="*60)
 print("--- Running Random Forest Model ---")
 print("="*60)
-# Pass copies of the master dataframes to model functions
+# Pass the separate training and testing dataframes to the RF function
 rf_results = train_and_evaluate_random_forest(
-    train_df=train_df_master.copy(),
-    test_df=test_df_master.copy(),
+    train_df=train_df_master.copy(), # Pass a copy
+    test_df=test_df_master.copy(),   # Pass a copy
     sma_period=RF_SMA_PERIOD,
     n_estimators=RF_N_ESTIMATORS,
     random_state=RANDOM_STATE
@@ -136,10 +156,10 @@ all_results.update(rf_results)
 print("\n" + "="*60)
 print("--- Running LSTM Model ---")
 print("="*60)
-# Pass copies of the master dataframes to model functions
+# Pass the separate training and testing dataframes to the LSTM function
 lstm_results = train_and_evaluate_lstm(
-    train_df=train_df_master.copy(),
-    test_df=test_df_master.copy(),
+    train_df=train_df_master.copy(), # Pass a copy
+    test_df=test_df_master.copy(),   # Pass a copy
     sequence_length=LSTM_SEQUENCE_LENGTH,
     batch_size=LSTM_BATCH_SIZE,
     epochs=LSTM_EPOCHS,
